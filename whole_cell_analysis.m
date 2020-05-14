@@ -11,7 +11,7 @@ function whole_cell_analysis
     
     % As events are selected, they can be sorted into 1 of 3 analysis groups:
     %   full event = rise and decay of event are measured
-    %   amplitude = rse of event is measured
+    %   amplitude = rise of event is measured
     %   frequency = event in included only in measurement of frequency
     
     % All events labeled for full analysis are added to the average event trace. Specific events
@@ -1701,6 +1701,5 @@ function whole_cell_analysis
 
 %% clean up
     close ALL FORCE
-    exportData;
     cd(rootDir);
 end
