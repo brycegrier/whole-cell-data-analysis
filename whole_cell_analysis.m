@@ -113,6 +113,7 @@ function whole_cell_analysis
 
     % obtain information on screen sizes
     screenDims = get(0,'monitorpositions');
+    screenOffset = [0 0];
     
     % determine larger of two displays
     if size(screenDims,1) > 1
@@ -122,8 +123,8 @@ function whole_cell_analysis
                 screenOffset = screenDims(1,3:4);
             end
         end
+        screenDims = screenDimsTemp;
     end
-    screenDims = screenDimsTemp;
 
     % setting dimension variables for later use in generating the GUI layout
     screenWidth = screenDims(3);
