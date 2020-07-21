@@ -759,13 +759,13 @@ function whole_cell_analysis
     % plot the rise and decay phases of the selected event
     
         % determine values needed to plot rise and decay
-        eventThresholdTime = traceSamples(eventTime,traceTimeCol);
-        eventThresholdValue = traceSamples(eventThresholdTime,traceValueCol);
-        eventPeakTime = traceSamples(eventTime,eventPlotEndCol);
-        eventPeakValue = traceSamples(eventPeakTime,traceValueCol);
-        valueAtDesiredDecay = eventPeakValue...
-            +abs((1-(decayPercent/100))*(eventPeakValue-eventThresholdValue));
-        decayTime = eventPeakTime+1;
+        tempThresholdTime = traceSamples(eventTime,traceTimeCol);
+        tempThresholdValue = traceSamples(tempThresholdTime,traceValueCol);
+        tempPeakTime = traceSamples(eventTime,eventPlotEndCol);
+        tempPeakValue = traceSamples(tempPeakTime,traceValueCol);
+        valueAtDesiredDecay = tempPeakValue...
+            +abs((1-(decayPercent/100))*(tempPeakValue-tempThresholdValue));
+        decayTime = tempPeakTime+1;
         valueAtDecayTime = traceSamples(decayTime,traceValueCol);
         while valueAtDecayTime < valueAtDesiredDecay
             decayTime = decayTime + 1;
@@ -774,11 +774,11 @@ function whole_cell_analysis
         
         % generate and plot X and Y values for rise and decay
         meanWindowY = mean(traceSamples(currentWindow,traceValueCol));
-        riseX = traceSamples(eventThresholdTime:eventPeakTime,traceTimeCol);
-        riseY = traceSamples(eventThresholdTime:eventPeakTime,traceValueCol);
+        riseX = traceSamples(tempThresholdTime:tempPeakTime,traceTimeCol);
+        riseY = traceSamples(tempThresholdTime:tempPeakTime,traceValueCol);
         riseYoffset = riseY - meanWindowY;       
-        decayX = traceSamples(eventPeakTime:decayTime,traceTimeCol);
-        decayY = traceSamples(eventPeakTime:decayTime,traceValueCol);
+        decayX = traceSamples(tempPeakTime:decayTime,traceTimeCol);
+        decayY = traceSamples(tempPeakTime:decayTime,traceValueCol);
         decayYoffset = decayY - meanWindowY;
         hold(tracePlot, 'on');
         plot(tracePlot,riseX,riseYoffset,'Color',[1 0 1]);
