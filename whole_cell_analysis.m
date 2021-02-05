@@ -1,6 +1,6 @@
 function whole_cell_analysis   
     % author: Bryce Grier 
-    % date 2020.02.03
+    % last updated 2020.02.04
     % contact: bdgrier@gmail.com
     
 %% introduction
@@ -25,11 +25,7 @@ function whole_cell_analysis
     % The delete button has two functions:
     %   when an event is selected, it deletes the selected event
     %   when no event is selected, it clears all events from the current view window
-    
-    % The update measurements button can be used to re-analyze events. It is useful if the user
-    % chooses to measure decay to a different percentage. This function also adds all events back
-    % into the average trace.
-    
+      
     % Your data are automatically exported to the Matlab base workspace when you exit the program.
 
 %% initialize shared variables
@@ -53,7 +49,7 @@ function whole_cell_analysis
     yOffset = 0;                    % default y offset of plotted trace
     sortedColumn = 1;               % column number on which data table is sorted 
     ascendLogical = 1;              % logical value indicating direction of sorting
-    windowScope = 800;                % default width of viewing window in sample points
+    windowScope = 800;              % default width of viewing window in sample points
     currentWindow = [];             % array of sample points currently in view
     autoZoom = 1;                   % logical value for auto zoon on event selection
     risePref = 1;                   % logical value for 10-90 rise preference
@@ -84,7 +80,7 @@ function whole_cell_analysis
     % selection variables
     eventCurrentlySelected = false; % logical value for whether event is selected
     eventIndex = 0;                 % row of selectedEvents current being modified
-    selectedEvents = NaN(500,20);   % matrix containing measurements of events
+    selectedEvents = nan(500,20);   % matrix containing measurements of events
     eventPeakTime = [];             % time of peak of currently selected event
     eventThresholdTime = [];        % time of threshold of currently selected event
     eventPeakValue = [];            % value of peak of currently selected event
@@ -636,6 +632,15 @@ function whole_cell_analysis
             uialert(mainPanel, 'Please sort or delete the selected event.','');
             return;
         end
+        
+        if sum(~isnan(selectedEvents(:))) > 0
+            decisionSave = uiconfirm(mainPanel,...
+                'Save before opening a new experiment?','',...
+                'Options',{'Yes','No'});
+            if strcmp(decisionSave,'Yes')
+                saveAnalysis;
+            end
+        end
     
         % turn on keyboard and click functions
         set(mainPanel, 'KeyPressFcn', @keyPressListener);
@@ -665,6 +670,11 @@ function whole_cell_analysis
             'averageTraceTau','averageTraceRsq','preEventSamples','postEventSamples',...
             'autoZoom','risePref','riseStartValue','riseEndValue','decayStartValue',...
             'decayEndValue');
+        
+        if exist('trace','var')     %included for legacy analysis files
+            load(analysisList.Value,'trace'); 
+            traceSamples = trace;             
+        end
         
         % set view parameters to those of saved experiment
         windowScope = length(currentWindow);
@@ -965,6 +975,21 @@ function whole_cell_analysis
         traceYoffset = traceY - meanWindowY;
         plot(tracePlot,traceX,traceYoffset,'Color','black');
         axis(tracePlot,[currentWindow(1) currentWindow(end) yMin-yOffset yMax-yOffset]);
+        
+        % plot scale bar
+        hold(tracePlot, 'on');
+        digits = ceil(log10(windowScope));
+        scaleNum = 10^(digits-2);
+        xBegin = currentWindow(end) - ceil(0.1*windowScope);
+        xVals = xBegin:xBegin+scaleNum;
+        yRange = abs(yMax-yMin);
+        yVals = repmat(yMin+ceil(0.1*yRange),length(xVals));
+        plot(tracePlot,xVals,yVals,'Color','black');
+        textX = xVals(1)+(floor(xVals(end)-xVals(1))/2);
+        textY = yMin+ceil(0.15*yRange);
+        text(tracePlot,textX,textY,sprintf('%d ms',scaleNum/samplesPerMilliSecond),...
+            'HorizontalAlignment','center');
+        hold(tracePlot, 'off');
 
         % determine location of previously analyzed events and display their event number
         eventsInViewLogical = traceSamples(currentWindow,eventPlotLogicalCol) == 1;
@@ -977,6 +1002,11 @@ function whole_cell_analysis
                 end
             end
         end
+%         plotScale;
+    end
+
+    function plotScale
+
     end
      
     function displayEventData
@@ -1360,6 +1390,12 @@ function whole_cell_analysis
 
     function exitAnalysis(~,~)
     % exit the GUI
+        decisionSave = uiconfirm(mainPanel,...
+            'Save before exiting?','',...
+            'Options',{'Yes','No'});
+        if strcmp(decisionSave,'Yes')
+            saveAnalysis;
+        end
         delete(mainPanel);
     end
 
@@ -1958,9 +1994,19 @@ function whole_cell_analysis
     function xSliderFunc(~,event)
     % controls the function of the x slider
     
-       xOffset = round(event.Value-event.PreviousValue);
-       currentWindow = currentWindow - xOffset;
-       plotLocation;
+        xOffset = round(event.Value-event.PreviousValue);
+        if (currentWindow(1) - xOffset) < 1
+            currentWindow = 1:ceil(windowScope);
+            uialert(mainPanel, 'Beginning of trace.','');
+            xSlider.Value = 0;
+        elseif (currentWindow(end) - xOffset) >= size(traceSamples,1)
+            currentWindow = traceSamples(end-length(currentWindow)+1:end,traceTimeCol)';
+            uialert(mainPanel, 'End of trace.','');
+            xSlider.Value = 0;
+        else
+            currentWindow = currentWindow - xOffset;
+        end
+        plotLocation;
     end
 
 %% clean up

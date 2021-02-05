@@ -7,7 +7,7 @@ function [organizedData, rawDataMatrix, rawDataTable, averageTrace] = exportData
 %     file = p.Results.file;
     output = p.Results.output;
     
-    dataTableRowNames = {'FullMeasure','AmplitudeMeasure','FrequencyMeasure',...
+    dataTableColumnNames = {'FullMeasure','AmplitudeMeasure','FrequencyMeasure',...
     'Amplitude(pA)','RiseTime(ms)','RiseSlope(pA/ms)','Rise50(SamplePoint)',...
     'Decay50(SamplePoint)','HalfWidth(ms)','DecayTime(ms)','Area(fC)',...
     'Threshold(SamplePoint)','AverageTraceMeasure','unused1','unused2',...
@@ -115,8 +115,10 @@ function [organizedData, rawDataMatrix, rawDataTable, averageTrace] = exportData
         end
 
     end
-    rawDataTable = array2table(rawDataMatrix);
-    rawDataTable.Properties.VariableNames = dataTableRowNames;
+    if ~isempty(rawDataMatrix)
+        rawDataTable = array2table(rawDataMatrix);
+        rawDataTable.Properties.VariableNames = dataTableColumnNames;
+    end
     if exportAverageTrace == 1
         averageTrace = mean([organizedData.averageTrace],2);
         if output == 1
