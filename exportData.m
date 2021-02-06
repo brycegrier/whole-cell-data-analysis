@@ -1,11 +1,51 @@
 function [organizedData, rawDataMatrix, rawDataTable, averageTrace] = exportData(varargin)
 
+    % There are 4 optional arguments for this function
+    %   numberOfEvents - how many events are exported
+    %       default value = 200
+    %       accepted values = >1
+    %   exportedGroup - which group is exported
+    %       default value = 'amplitude'
+    %       accepted values = {'full', 'amplitude'}
+    %       'full' = N events from the full event group are exported
+    %       'amplitude' = N events from the amplitude group are exported
+    %   frequencyCalculation - how frequency is calculated
+    %       default value = 'all'
+    %       accepted values = {'all','limited'}
+    %       'all' = frequency is calculated from all selected events
+    %       'limited' = frequency is calculated from the first N exported
+    %                   events
+    %   output - where variables are saved
+    %       default value = 0
+    %       accepted values = [0, 1]
+    %       0 = output variables are only assigned in the workspace from
+    %           which 'exportData' is called. this is useful for exporting
+    %           data by hand
+    %       1 = assign output variables to base workspace (mostly useful
+    %           for auto-export at the end of analysis)
+    % 
+    %   examples:
+    %   [organizedData, rawDataMatrix, rawDataTable, averageTrace] = exportData('exportedGroup','full','frequencyCalculation','all');
+    %   [organizedData, rawDataMatrix, rawDataTable, averageTrace] = exportData('numberOfEvents',300,'frequencyCalculation','limited');
+    %   [organizedData, rawDataMatrix, rawDataTable, averageTrace] = exportData('exportedGroup','ampltude','output',1);
+
+    warning('off','MATLAB:load:variableNotFound');
+
     p = inputParser;
-%     addOptional(p,'file','*.mat',@ischar);
     addOptional(p,'output',false,@islogical);
+    addOptional(p,'exportedGroup','amplitude',@ischar);
+    addOptional(p,'frequencyCalculation','all',@ischar);
+    addOptional(p,'numberOfEvents',200,@isnumeric);
     parse(p,varargin{:});
-%     file = p.Results.file;
     output = p.Results.output;
+    groupChoice = validatestring(p.Results.exportedGroup,["full", "amplitude"]);
+    freqChoice = validatestring(p.Results.frequencyCalculation,["all", "limited"]);
+    numEvents = p.Results.numberOfEvents;
+    
+    organizedData = struct();
+    rawDataMatrix = [];
+    rawDataTable = table();
+    averageTrace = [];
     
     dataTableColumnNames = {'FullMeasure','AmplitudeMeasure','FrequencyMeasure',...
     'Amplitude(pA)','RiseTime(ms)','RiseSlope(pA/ms)','Rise50(SamplePoint)',...
@@ -28,22 +68,14 @@ function [organizedData, rawDataMatrix, rawDataTable, averageTrace] = exportData
     eventTimeCol = 12;   
     averageTraceLogicalCol = 13;
       
-%     if ~strcmp(file,'')
-%         fileSpec = strcat('*',file,'*.mat');
-%     else
-%         fileSpec = '*.mat';
-%     end
-
     rootDirFolders = dir;
     foldersLogical = [rootDirFolders.isdir] == 1;
     rootDirFolders = rootDirFolders(foldersLogical);
-    organizedData = struct();
-    rawDataMatrix = [];
+    
     for folder = 3:size(rootDirFolders)
-        averageTraceTau = [];
-        averageTraceRsq = [];
-        averageTraceRiseSlope = [];
-        averageTraceRiseTime = [];
+        neededVars = {'selectedEvents'; 'averageTrace'; 'averageTraceTau';...
+                'averageTraceRsq'; 'averageTraceRiseTime'; 'averageTraceRiseSlope';...
+                'allTraces'};
         nextDir = rootDirFolders(folder).name;
         if ~isfolder(nextDir)
             continue;
@@ -60,9 +92,16 @@ function [organizedData, rawDataMatrix, rawDataTable, averageTrace] = exportData
         try
             load(filename.name, 'selectedEvents', 'averageTrace', 'averageTraceTau',...
                 'averageTraceRsq','averageTraceRiseTime','averageTraceRiseSlope','allTraces');
+            loadedVars = load(filename.name, 'selectedEvents', 'averageTrace', 'averageTraceTau',...
+                'averageTraceRsq','averageTraceRiseTime','averageTraceRiseSlope','allTraces');
         catch
             cd ..;
             continue;
+        end
+        loadedVars = fieldnames(loadedVars);
+        missingVars = setdiff(neededVars,loadedVars);
+        for i = 1:length(missingVars)
+            feval(@()assignin('caller',missingVars{i},[]));
         end
         if sum(~isnan(selectedEvents)) == 0
             cd ..;
@@ -70,7 +109,21 @@ function [organizedData, rawDataMatrix, rawDataTable, averageTrace] = exportData
         end
         selectedEvents = selectedEvents(~isnan(selectedEvents(:,eventTimeCol)),:);
         selectedEvents = abs(selectedEvents);
-        while nansum(selectedEvents(:,amplitudeLogicalCol)) > 200
+        
+        switch groupChoice
+            case {'full'}
+                chosenGroupCol = fullEventLogicalCol;
+            case {'amplitude'}
+                chosenGroupCol = amplitudeLogicalCol;
+        end
+        if nansum(selectedEvents(:,chosenGroupCol)) < numEvents
+            alert = sprintf('%s%s%s','Too few events in "', pwd,'". Experiment skipped.');
+            matError = errordlg(alert);
+            uiwait(matError);
+            cd ..;
+            continue;
+        end
+        while nansum(selectedEvents(:,chosenGroupCol)) > numEvents
             selectedEvents = selectedEvents(1:end-1,:);
         end
         allTraces = allTraces(:,selectedEvents(:,averageTraceLogicalCol) == 1);
@@ -98,7 +151,13 @@ function [organizedData, rawDataMatrix, rawDataTable, averageTrace] = exportData
         end
         tempIMI = tempIMI';
         selectedEvents(:,16) = tempIMI;
-%         selectedEvents(200:end,16) = nan; %BG 24Jan21 -- makes it so IMI is calculated from first 200 events only
+        if strcmp(freqChoice,'limited')
+            selectedEvents(numEvents:end,16) = nan; %BG 24Jan21 -- makes it so IMI is calculated from first (numEvents) events only
+            organizedData(folder-2).frequency =...
+                (length(selectedEvents)*1000)/...
+                (((selectedEvents(numEvents,eventTimeCol)-selectedEvents(1,eventTimeCol))/...
+                samplesPerMilliSecond));
+        end
         rawDataMatrix = [rawDataMatrix; selectedEvents];
         cd ..;
     end
@@ -113,13 +172,15 @@ function [organizedData, rawDataMatrix, rawDataTable, averageTrace] = exportData
                 break;
             end
         end
-
+        
     end
     if ~isempty(rawDataMatrix)
         rawDataTable = array2table(rawDataMatrix);
         rawDataTable.Properties.VariableNames = dataTableColumnNames;
+    else
+        return;
     end
-    if exportAverageTrace == 1
+    if exportAverageTrace && isfield(organizedData,'averageTrace')
         averageTrace = mean([organizedData.averageTrace],2);
         if output == 1
             assignin('base','averageTrace',averageTrace);
@@ -130,4 +191,6 @@ function [organizedData, rawDataMatrix, rawDataTable, averageTrace] = exportData
         assignin('base','rawDataMatrix',rawDataMatrix);
         assignin('base','rawDataTable',rawDataTable);
     end
+    
+    warning('on','MATLAB:load:variableNotFound');
 end

@@ -104,14 +104,19 @@ function whole_cell_analysis
     averageTraceRiseSlope = [];     % average trace rise slope
     eventPlots = gobjects(1,size(selectedEvents,1));        %place holders for trace plot objects
     eventPlotsScaled = gobjects(1,size(selectedEvents,1));  %place holders for trace plot objects
+    
+    % export variables
+    exportGroup = 'amplitude';
+    exportNum = 200;
+    freqCalcPref = 'all';
        
 %% set root directory
     % the root directory should contain experiments separated into folders
     % specific experiment folders can be navigated to within the GUI
     
     % open folder selection window and set selected folder at the root diretory
-    rootDir = uigetdir(pwd,'Choose root directory.'); 
-    cd(rootDir);
+%     rootDir = uigetdir(pwd,'Choose root directory.'); 
+%     cd(rootDir);
    
 %% get screen dimensions
     % obtain information to assist in dynamically creating the GUI
@@ -318,13 +323,63 @@ function whole_cell_analysis
     settingsTabWidth = settingsTabDims(3);
     settingsTabHeight = settingsTabDims(4);
     
+    % labels and fields relating to the number of events to export
+    uilabel('Parent',settingsTab,...
+        'Text','Number of Events',...
+        'fontweight', 'bold',...
+        'HorizontalAlignment','Center',...
+        'Position',[settingsTabWidth*0.275-(120/2) settingsTabHeight*0.775 120 20]);
+    uilabel('Parent',settingsTab,...
+        'Text','to Export (n)',...
+        'fontweight', 'bold',...
+        'HorizontalAlignment','Center',...
+        'Position',[settingsTabWidth*0.275-(100/2) settingsTabHeight*0.725 100 20]);
+    exportNumField = uieditfield(settingsTab,...
+        'numeric',...
+        'Value',exportNum,...
+        'ValueChangedFcn',@exportNumChange,...
+        'Position',[settingsTabWidth*0.275-(30/2) settingsTabHeight*0.675 30 20],...
+        'HorizontalAlignment','Center');
+    
+    % radio button group for export group selection
+    exportGroupCheckHeight = 0.2*settingsTabHeight;
+    exportGroupCheckWidth = 0.1*settingsTabWidth;
+    exportGroupCheck = uibuttongroup('Parent',settingsTab,...
+        'Title','Group to Export',...
+        'SelectionChangedFcn',@exportGroupChange,...
+        'Position',[settingsTabWidth*0.05 settingsTabHeight*0.65 exportGroupCheckWidth exportGroupCheckHeight]);
+    uiradiobutton('Parent',exportGroupCheck,...
+        'Text','Full Event',...
+        'Position',[10 0.55*exportGroupCheckHeight 100 15]);
+    uiradiobutton('Parent',exportGroupCheck,...
+        'Text','Amplitude',...
+        'Position',[10 0.3*exportGroupCheckHeight 100 15],...
+        'Value',true);
+    uiradiobutton('Parent',exportGroupCheck,...
+        'Text','Frequency',...
+        'Position',[10 0.05*exportGroupCheckHeight 100 15]);
+    
+    % radio button group for frequency calculation preference
+    freqpPrefCheckHeight = 0.15*settingsTabHeight;
+    freqPrefCheckWidth = 0.15*settingsTabWidth;
+    freqPrefCheck = uibuttongroup('Parent',settingsTab,...
+        'Title','Frequency Calculation',...
+        'SelectionChangedFcn',@freqPrefChange,...
+        'Position',[settingsTabWidth*0.4 settingsTabHeight*0.675 freqPrefCheckWidth freqpPrefCheckHeight]);
+    uiradiobutton('Parent',freqPrefCheck,...
+        'Text','From First n Events',...
+        'Position',[10 0.425*freqpPrefCheckHeight 150 15]);
+    uiradiobutton('Parent',freqPrefCheck,...
+        'Text','From All Events',...
+        'Position',[10 0.1*freqpPrefCheckHeight 150 15]);
+    
     % checkbox for auto-zoom on event selection
     zoomCheck = uicheckbox('Parent',settingsTab,...
         'Text','Auto-zoom on event selection',...
         'fontweight','bold',...
         'Value',autoZoom,...
         'ValueChangedFcn',@zoomChange,...
-        'Position',[settingsTabWidth*0.5-(200/2) settingsTabHeight*0.90-(40) 200 20]);
+        'Position',[settingsTabWidth*0.8-(200/2) settingsTabHeight*0.85-(40) 200 20]);
     
     % checkbox for rise time preferences
     riseCheck = uicheckbox('Parent',settingsTab,...
@@ -332,7 +387,7 @@ function whole_cell_analysis
         'fontweight','bold',...
         'Value',risePref,...
         'ValueChangedFcn',@fieldUpdate,...
-        'Position',[settingsTabWidth*0.5-(200/2) settingsTabHeight*0.80-(40) 200 20]);
+        'Position',[settingsTabWidth*0.8-(200/2) settingsTabHeight*0.775-(40) 200 20]);
     
     % controls for measuring and editing RMS/noise threshold
     uibutton('Parent',settingsTab,...
@@ -591,6 +646,15 @@ function whole_cell_analysis
             return;
         end
     
+        if sum(~isnan(selectedEvents(:))) > 0
+            decisionSave = uiconfirm(mainPanel,...
+                'Save before opening a new experiment?','',...
+                'Options',{'Yes','No'});
+            if strcmp(decisionSave,'Yes')
+                saveAnalysis;
+            end
+        end
+        
         % clear plots and reset certain parameters to their default values
         cla(averageTracePlot);
         cla(allTracePlot);
@@ -1984,6 +2048,21 @@ function whole_cell_analysis
         end
     end
 
+    function exportGroupChange(~,event)
+    % changes which group is auto-exported
+        exportGroup = event.NewValue.Text;
+    end
+
+    function freqPrefChange(~,event)
+    % changes how frequency is calculated during export
+        freqCalcPref = event.NewValue.Text;
+    end
+
+    function exportNumChange(~,~)
+    % changes how many events are exported
+        exportNum = exportNumField.Value;
+    end
+
 %% slider control functions
     function ySliderFunc(~,event)
     % controls the function of the y slider
@@ -2012,5 +2091,5 @@ function whole_cell_analysis
 %% clean up
     close ALL FORCE
     cd(rootDir);
-    [~,~,~,~] = exportData('output',true);
+    [~,~,~,~] = exportData('output',true,'group',exportGroup,'numberOfEvents',exportNum,'frequencyMeasure',freqCalcPref);
 end
