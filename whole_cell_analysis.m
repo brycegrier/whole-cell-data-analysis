@@ -115,8 +115,8 @@ function whole_cell_analysis
     % specific experiment folders can be navigated to within the GUI
     
     % open folder selection window and set selected folder at the root diretory
-%     rootDir = uigetdir(pwd,'Choose root directory.'); 
-%     cd(rootDir);
+    rootDir = uigetdir(pwd,'Choose root directory.'); 
+    cd(rootDir);
    
 %% get screen dimensions
     % obtain information to assist in dynamically creating the GUI
