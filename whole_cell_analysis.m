@@ -2091,5 +2091,5 @@ function whole_cell_analysis
 %% clean up
     close ALL FORCE
     cd(rootDir);
-    [~,~,~,~] = exportData('output',true,'group',exportGroup,'numberOfEvents',exportNum,'frequencyMeasure',freqCalcPref);
+    [~,~,~,~] = exportData('output',true,'exportedGroup',exportGroup,'numberOfEvents',exportNum,'frequencyMeasure',freqCalcPref);
 end
