@@ -42,6 +42,7 @@ function whole_cell_analysis
     fileName = "";                  % string containing experiment file name
     matliststrings = string();      % string of matlab files present in experiment folder
     traceliststrings = string();    % string of traces present in experiment folder
+    previousFolder = "";
         
     % display variables
     yMax = 10;                      % default maximum y axis value of plotted trace
@@ -651,7 +652,18 @@ function whole_cell_analysis
                 'Save before opening a new experiment?','',...
                 'Options',{'Yes','No'});
             if strcmp(decisionSave,'Yes')
+                newFolder = directoryControl.Value;
+                cd(rootDir);
+                cd(previousFolder);
                 saveAnalysis;
+                cd(rootDir);
+                cd(newFolder);
+                matlist = dir('*.mat');
+                matliststrings = string();
+                for matIndex = 1:size(matlist,1)
+                    matliststrings(matIndex) = convertCharsToStrings(matlist(matIndex).name);
+                end
+                set(analysisList, 'Items', matliststrings);
             end
         end
         
@@ -702,7 +714,18 @@ function whole_cell_analysis
                 'Save before opening a new experiment?','',...
                 'Options',{'Yes','No'});
             if strcmp(decisionSave,'Yes')
+                newFolder = directoryControl.Value;
+                cd(rootDir);
+                cd(previousFolder);
                 saveAnalysis;
+                cd(rootDir);
+                cd(newFolder);
+                matlist = dir('*.mat');
+                matliststrings = string();
+                for matIndex = 1:size(matlist,1)
+                    matliststrings(matIndex) = convertCharsToStrings(matlist(matIndex).name);
+                end
+                set(analysisList, 'Items', matliststrings);
             end
         end
     
@@ -1678,7 +1701,7 @@ function whole_cell_analysis
         ascendLogical = issortedrows(event.Source.DisplayData,sortedColumn,'ascend');
     end
 
-    function populateLists(~,~)
+    function populateLists(~,event)
     % add values to list boxes on the control tab
         
         % intialize lists and navigate to chosen experiment folder
@@ -1687,6 +1710,7 @@ function whole_cell_analysis
         chosenCell = directoryControl.Value;
         cd(rootDir);
         cd(chosenCell);
+        previousFolder = event.PreviousValue;
         
         % generate list of analysis files
         matlist = dir('*.mat');
