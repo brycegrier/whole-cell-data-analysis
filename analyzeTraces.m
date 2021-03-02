@@ -1,6 +1,6 @@
 function analyzeTraces 
     % author: Bryce Grier 
-    % last updated 2020.02.04
+    % last updated 2020.02.22
     % contact: bdgrier@gmail.com
     
 %% introduction
@@ -33,7 +33,7 @@ function analyzeTraces
     % analysis parameters
     RMS = 2;                        % default value for root mean square noise of trace
     noiseThreshold = 3*RMS;         % default threshold for event detection 
-    decayPercent = 50;              % default percentage of decay to measure
+    decayPercent = 20;              % default percentage of decay to measure to
     samplesPerMilliSecond = 10;     % sampling rate/1000
     
     % diretory and cell strings
@@ -97,17 +97,14 @@ function analyzeTraces
     averageTrace = [];              % column vector with mean of each row of allTraces
     eventPlots = gobjects(1,size(selectedEvents,1));        %place holders for trace plot objects
     eventPlotsScaled = gobjects(1,size(selectedEvents,1));  %place holders for trace plot objects
+    
+    % misc
+    updatingLogical = false;
+    averageTraceUpdate = false;
           
 %% set root directory
     % the root directory should contain experiments separated into folders
     % specific experiment folders can be navigated to within the GUI
-    
-    % open folder selection window and set selected folder at the root diretory
-%     rootDir = uigetdir(pwd,'Choose root directory.'); 
-%     if rootDir == 0
-%         rootDir = pwd;
-%     end
-%     cd(rootDir);
     rootDir = pwd;
    
 %% get screen dimensions
@@ -977,10 +974,6 @@ function analyzeTraces
         end
 %         plotScale;
     end
-
-    function plotScale
-
-    end
      
     function displayEventData
     % update the table that displays measurements of events
@@ -1106,15 +1099,19 @@ function analyzeTraces
         end
         
         % update selectedEvents matrix and progress through event measurement
-        selectedEvents(eventIndex,fullEventLogicalCol) = 1;
+        selectedEvents(eventIndex,fullEventLogicalCol) = 1;    
         if eventThresholdTime - preEventSamples < 1
-            uialert(mainPanel, 'Too few sample points before threshold.\nEvent not added to average trace.','');
+            uialert(mainPanel, 'Event is too close to beginning of trace','');
             return;
         elseif eventPeakTime + postEventSamples > length(traceSamples)
-            uialert(mainPanel, 'Too few sample points beyond peak.\nEvent not added to average trace.','');
+            uialert(mainPanel, 'Event is too close to end of trace.','');
             return;
-        end
+        end        
+        
         selectedEvents(eventIndex,averageTraceLogicalCol) = 1;
+        if updatingLogical == true
+            selectedEvents(eventIndex,averageTraceLogicalCol) = averageTraceUpdate;          
+        end
         calculateDecayValues;
         addToAmplitudeGroup;
     end
@@ -1170,10 +1167,12 @@ function analyzeTraces
         % reset event selection process, sort selectedEvents, and update GUI elements 
         eventCurrentlySelected = false;
         selectedEvents = sortrows(selectedEvents,eventTimeCol,'MissingPlacement','last');
-        updateSortCounts;
-        displayEventData;
-        plotLocation;
-        plotOverlaidEvents;
+        if updatingLogical == false
+            updateSortCounts;
+            displayEventData;
+            plotLocation;
+            plotOverlaidEvents;
+        end
     end
 
     function deleteEvent(~,~)
@@ -1366,6 +1365,8 @@ function analyzeTraces
     function updateMeasurements
     % cycle through selectedEvents to re-analyze events with different settings
         
+        updatingLogical = true;
+    
         % ignore button click if an event is currently selected
         if (eventCurrentlySelected == true)
             uialert(mainPanel, 'Please sort or delete the selected event.','');
@@ -1378,6 +1379,7 @@ function analyzeTraces
             eventCurrentlySelected = true;
             eventThresholdTime = selectedEvents(updateIndex,eventTimeCol);
             eventPeakTime = traceSamples(eventThresholdTime,eventPlotEndCol);
+            averageTraceUpdate = selectedEvents(updateIndex,averageTraceLogicalCol);
             if selectedEvents(updateIndex,fullEventLogicalCol) == 1
                 selectedEvents(updateIndex,:) = nan;
                 addToFullDecayGroup;
@@ -1390,7 +1392,11 @@ function analyzeTraces
             end
             d.Value = updateIndex/sum(~isnan(selectedEvents(:,12)),1);
         end
+        updatingLogical = false;
+        updateSortCounts;
+        displayEventData;
         plotLocation;
+        plotOverlaidEvents;
     end
 
     function addFreqToAmp(~,~)
@@ -1650,10 +1656,13 @@ function analyzeTraces
                 decayVal = decayArray(decayArrayIndex,1);
             end
         catch
-            % in these rare cases, the event is discarded automatically by the program
-            traceSamples(eventThresholdTime, eventPlotLogicalCol) = 0;
-            traceSamples(eventThresholdTime, eventPlotEndCol) = nan;    
-            selectedEvents(eventIndex,:) = nan;
+            % in these rare cases, the event is measured for amplitude
+%             traceSamples(eventThresholdTime, eventPlotLogicalCol) = 0;
+%             traceSamples(eventThresholdTime, eventPlotEndCol) = nan;    
+%             selectedEvents(eventIndex,:) = nan;
+            selectedEvents(eventIndex,fullEventLogicalCol) = 0;    
+            selectedEvents(eventIndex,averageTraceLogicalCol) = 0;
+            uialert(mainPanel,'A decay value could not be determined for an event','');
             return;
         end
         decay50Time = decayArrayIndex/100; 
@@ -1670,10 +1679,14 @@ function analyzeTraces
                 decayVal = decayArray(decayArrayIndex,1);
             end
         catch
-            % in these rare cases, the event is discarded automatically by the program
-            traceSamples(eventThresholdTime, eventPlotLogicalCol) = 0;
-            traceSamples(eventThresholdTime, eventPlotEndCol) = nan; 
-            selectedEvents(eventIndex,:) = nan;
+            % in these rare cases, the event is measured for amplitude
+%             traceSamples(eventThresholdTime, eventPlotLogicalCol) = 0;
+%             traceSamples(eventThresholdTime, eventPlotEndCol) = nan; 
+%             selectedEvents(eventIndex,:) = nan;
+            selectedEvents(eventIndex,fullEventLogicalCol) = 0;    
+            selectedEvents(eventIndex,averageTraceLogicalCol) = 0;
+            selectedEvents(eventIndex,decay50TimeCol) = 0;
+            uialert(mainPanel,'A decay value could not be determined for an event','');
             return;
         end
         decayToPercentTime = decayArrayIndex/100; 
