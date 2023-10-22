@@ -128,23 +128,12 @@ function analyzeTraces_pair
     % obtain information to assist in dynamically creating the GUI
 
     % obtain information on screen sizes
-    screenDims = get(0,'monitorpositions');
+    screenDims = get(0,'screensize');
     screenOffset = [0 0];
-    
-%     % determine larger of two displays
-%     if size(screenDims,1) > 1
-%         for k = 2:size(screenDims,1)
-%             if (screenDims(k,3)*screenDims(k,4)) > (screenDims(k-1,3)*screenDims(k-1,4))
-%                 screenDimsTemp = screenDims(k,:);
-%                 screenOffset = screenDims(1,3:4);
-%             end
-%         end
-%         screenDims = screenDimsTemp;
-%     end
 
     % setting dimension variables for later use in generating the GUI layout
-    screenWidth = screenDims(5);
-    screenHeight = screenDims(7);
+    screenWidth = screenDims(3);
+    screenHeight = screenDims(4);
     
 %% set working directory
     % populate the list of experiment folders that you are able to choose from
