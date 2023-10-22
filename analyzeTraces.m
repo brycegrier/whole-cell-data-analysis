@@ -1,6 +1,6 @@
-function analyzeTraces 
+function analyzeTraces
     % author: Bryce Grier 
-    % last updated 2020.02.22
+    % last updated 2020.03.03
     % contact: bdgrier@gmail.com
     
 %% introduction
@@ -25,15 +25,16 @@ function analyzeTraces
     % The delete button has two functions:
     %   when an event is selected, it deletes the selected event
     %   when no event is selected, it clears all events from the current view window
-      
-    % Your data are automatically exported to the Matlab base workspace when you exit the program.
 
 %% initialize shared variables
 
     % analysis parameters
     RMS = 2;                        % default value for root mean square noise of trace
     noiseThreshold = 3*RMS;         % default threshold for event detection 
-    decayPercent = 20;              % default percentage of decay to measure to
+    decayStartPercent = 90;              % default percentage of decay to measure from
+    decayEndPercent = 37;              % default percentage of decay to measure to
+    riseStartPercent = 10;              % default percentage of rise to measure from
+    riseEndPercent = 90;              % default percentage of rise to measure to
     samplesPerMilliSecond = 10;     % sampling rate/1000
     
     % diretory and cell strings
@@ -42,7 +43,6 @@ function analyzeTraces
     fileName = "";                  % string containing experiment file name
     matliststrings = string();      % string of matlab files present in experiment folder
     traceliststrings = string();    % string of traces present in experiment folder
-    previousFolder = "";
         
     % display variables
     yMax = 10;                      % default maximum y axis value of plotted trace
@@ -53,7 +53,7 @@ function analyzeTraces
     windowScope = 800;              % default width of viewing window in sample points
     currentWindow = [];             % array of sample points currently in view
     autoZoom = 1;                   % logical value for auto zoon on event selection
-    risePref = 1;                   % logical value for 10-90 rise preference
+    traceAlignment = 'Align By Threshold'; % value for how to align traces
     
     % trace variables
     traceSamples = [];              % imported whole cell trace
@@ -68,8 +68,8 @@ function analyzeTraces
     amplitudeLogicalCol = 2;        % logical value for inclusion of event in amplitude measurement
     frequencyLogicalCol = 3;        % logical value for inclusion of event in frequency measurement
     amplitudeValueCol = 4;          % measurement of event amplitude 
-    risetime1090ValueCol = 5;       % measurement of event 10-90 rise time
-    riseslope1090ValueCol = 6;      % measurement of event 10-90 slope
+    riseTimeValueCol = 5;       % measurement of event 10-90 rise time
+    riseSlopeValueCol = 6;      % measurement of event 10-90 slope
     rise50TimeCol = 7;              % sample point at which event rise 50 occurs
     decay50TimeCol = 8;             % sample point at which event decay 50 occurs
     halfWidthValueCol = 9;          % measurement of event half width
@@ -81,7 +81,7 @@ function analyzeTraces
     % selection variables
     eventCurrentlySelected = false; % logical value for whether event is selected
     eventIndex = 0;                 % row of selectedEvents current being modified
-    selectedEvents = nan(500,20);   % matrix containing measurements of events
+    selectedEvents = nan(500,15);   % matrix containing measurements of events
     eventPeakTime = [];             % time of peak of currently selected event
     eventThresholdTime = [];        % time of threshold of currently selected event
     eventPeakValue = [];            % value of peak of currently selected event
@@ -101,6 +101,7 @@ function analyzeTraces
     % misc
     updatingLogical = false;
     averageTraceUpdate = false;
+    savePath = '';
           
 %% set root directory
     % the root directory should contain experiments separated into folders
@@ -111,19 +112,8 @@ function analyzeTraces
     % obtain information to assist in dynamically creating the GUI
 
     % obtain information on screen sizes
-    screenDims = get(0,'monitorpositions');
+    screenDims = get(0,'ScreenSize');
     screenOffset = [0 0];
-    
-    % determine larger of two displays
-    if size(screenDims,1) > 1
-        for k = 2:size(screenDims,1)
-            if (screenDims(k,3)*screenDims(k,4)) > (screenDims(k-1,3)*screenDims(k-1,4))
-                screenDimsTemp = screenDims(k,:);
-                screenOffset = screenDims(1,3:4);
-            end
-        end
-        screenDims = screenDimsTemp;
-    end
 
     % setting dimension variables for later use in generating the GUI layout
     screenWidth = screenDims(3);
@@ -313,6 +303,23 @@ function analyzeTraces
     settingsTabWidth = settingsTabDims(3);
     settingsTabHeight = settingsTabDims(4);
     
+    % radio buttons for average trace alignment preference
+        traceButtonWidth = settingsTabWidth*0.25;
+        traceButtonHeight = settingsTabHeight*0.225;
+        traceAlignButton  = uibuttongroup('Parent',settingsTab,...
+            'Title','Average Trace Alignment',...
+            'fontweight','bold',...
+            'SelectionChangedFcn',@alignmentChange,...
+            'Position',[settingsTabWidth*0.2-(traceButtonWidth/2) settingsTabHeight*0.75-(traceButtonHeight/2) traceButtonWidth traceButtonHeight]);
+        uiradiobutton('Parent',traceAlignButton,...
+            'Text','Align By Threshold',...
+            'fontweight', 'bold',...
+            'Position',[traceButtonWidth*0.5-(150/2) traceButtonHeight*0.5-(20/2) 150 20]); 
+        uiradiobutton('Parent',traceAlignButton,...
+            'Text','Align By Peak',...
+            'fontweight', 'bold',...
+            'Position',[traceButtonWidth*.5-(150/2) traceButtonHeight*0.2-(20/2) 150 20]); 
+    
     % checkbox for auto-zoom on event selection
     zoomCheck = uicheckbox('Parent',settingsTab,...
         'Text','Auto-zoom on event selection',...
@@ -320,102 +327,144 @@ function analyzeTraces
         'Value',autoZoom,...
         'ValueChangedFcn',@zoomChange,...
         'Position',[settingsTabWidth*0.8-(200/2) settingsTabHeight*0.85-(40) 200 20]);
-    
-    % checkbox for rise time preferences
-    riseCheck = uicheckbox('Parent',settingsTab,...
-        'Text','Calculate 10-90 rise values',...
-        'fontweight','bold',...
-        'Value',risePref,...
-        'ValueChangedFcn',@fieldUpdate,...
-        'Position',[settingsTabWidth*0.8-(200/2) settingsTabHeight*0.775-(40) 200 20]);
-    
+      
     % controls for measuring and editing RMS/noise threshold
     uibutton('Parent',settingsTab,...
         'Text','Measure',...
         'ButtonPushedFcn',@measureRMS,...
         'fontweight', 'bold',...
-        'Position',[settingsTabWidth*0.08-(60/2) settingsTabHeight*0.405 60 20]); 
+        'Position',[settingsTabWidth*0.08-(60/2) settingsTabHeight*0.505 60 20]); 
     uilabel('Parent',settingsTab,...
         'Text','RMS =',...
         'fontweight', 'bold',...
         'HorizontalAlignment','Center',...
-        'Position',[settingsTabWidth*0.16-(50/2) settingsTabHeight*0.4 50 20]);
+        'Position',[settingsTabWidth*0.16-(50/2) settingsTabHeight*0.5 50 20]);
     rmsField = uieditfield(settingsTab,...
         'numeric',...
         'Value',RMS,...
         'ValueChangedFcn',@rmsUpdate,...
-        'Position',[settingsTabWidth*0.22-(30/2) settingsTabHeight*0.4 40 20],...
+        'Position',[settingsTabWidth*0.22-(30/2) settingsTabHeight*0.5 40 20],...
         'HorizontalAlignment','Center');
     cutoffText = uilabel('Parent',settingsTab,...
         'Text',strcat("Noise Threshold: ",num2str(noiseThreshold)," pA"),...
-        'Position',[settingsTabWidth*0.15-(175/2) settingsTabHeight*0.325 175 20],...
+        'Position',[settingsTabWidth*0.15-(175/2) settingsTabHeight*0.425 175 20],...
         'fontweight', 'bold',...
         'HorizontalAlignment','Center');
     
-    % labels and fields dealing with how event decay time is measured
+    % labels and fields dealing with how event rise time is measured
     uilabel('Parent',settingsTab,...
-        'Text','Measure Decay to',...
+        'Text','Rise Time Measurement',...
         'fontweight', 'bold',...
         'HorizontalAlignment','Center',...
-        'Position',[settingsTabWidth*0.38-(120/2) settingsTabHeight*0.4 120 20]);
-    decayField = uieditfield(settingsTab,...
+        'Position',[settingsTabWidth*0.35-(160/2) settingsTabHeight*0.25 160 20]);
+    riseStartField = uieditfield(settingsTab,...
         'numeric',...
-        'Value',decayPercent,...
+        'Value',riseStartPercent,...
         'ValueChangedFcn',@fieldUpdate,...
-        'Position',[settingsTabWidth*0.335-(30/2) settingsTabHeight*0.325 30 20],...
+        'Position',[settingsTabWidth*0.30-(30/2) settingsTabHeight*0.175 30 20],...
         'HorizontalAlignment','Center');
     uilabel('Parent',settingsTab,...
-        'Text','% of Peak',...
+        'Text','%',...
         'fontweight', 'bold',...
         'HorizontalAlignment','Center',...
-        'Position',[settingsTabWidth*0.405-(70/2) settingsTabHeight*0.325 70 20]);
+        'Position',[settingsTabWidth*0.33-(20/2) settingsTabHeight*0.175 20 20]);
+    uilabel('Parent',settingsTab,...
+        'Text','to',...
+        'fontweight', 'bold',...
+        'HorizontalAlignment','Center',...
+        'Position',[settingsTabWidth*0.35-(20/2) settingsTabHeight*0.175 20 20]);
+    riseEndField = uieditfield(settingsTab,...
+        'numeric',...
+        'Value',riseEndPercent,...
+        'ValueChangedFcn',@fieldUpdate,...
+        'Position',[settingsTabWidth*0.39-(30/2) settingsTabHeight*0.175 30 20],...
+        'HorizontalAlignment','Center');
+    uilabel('Parent',settingsTab,...
+        'Text','%',...
+        'fontweight', 'bold',...
+        'HorizontalAlignment','Center',...
+        'Position',[settingsTabWidth*0.42-(20/2) settingsTabHeight*0.175 20 20]);
+    
+    % labels and fields dealing with how event decay time is measured
+    uilabel('Parent',settingsTab,...
+        'Text','Decay Time Measurement',...
+        'fontweight', 'bold',...
+        'HorizontalAlignment','Center',...
+        'Position',[settingsTabWidth*0.65-(160/2) settingsTabHeight*0.25 160 20]);
+    decayStartField = uieditfield(settingsTab,...
+        'numeric',...
+        'Value',decayStartPercent,...
+        'ValueChangedFcn',@fieldUpdate,...
+        'Position',[settingsTabWidth*0.60-(30/2) settingsTabHeight*0.175 30 20],...
+        'HorizontalAlignment','Center');
+    uilabel('Parent',settingsTab,...
+        'Text','%',...
+        'fontweight', 'bold',...
+        'HorizontalAlignment','Center',...
+        'Position',[settingsTabWidth*0.63-(20/2) settingsTabHeight*0.175 20 20]);
+    uilabel('Parent',settingsTab,...
+        'Text','to',...
+        'fontweight', 'bold',...
+        'HorizontalAlignment','Center',...
+        'Position',[settingsTabWidth*0.65-(20/2) settingsTabHeight*0.175 20 20]);
+    decayEndField = uieditfield(settingsTab,...
+        'numeric',...
+        'Value',decayEndPercent,...
+        'ValueChangedFcn',@fieldUpdate,...
+        'Position',[settingsTabWidth*0.69-(30/2) settingsTabHeight*0.175 30 20],...
+        'HorizontalAlignment','Center');
+    uilabel('Parent',settingsTab,...
+        'Text','%',...
+        'fontweight', 'bold',...
+        'HorizontalAlignment','Center',...
+        'Position',[settingsTabWidth*0.72-(20/2) settingsTabHeight*0.175 20 20]);
     
     % labels and fields associated with sampling rate 
     uilabel('Parent',settingsTab,...
         'Text','Sampling Rate',...
         'fontweight', 'bold',...
         'HorizontalAlignment','Center',...
-        'Position',[settingsTabWidth*0.57-(110/2) settingsTabHeight*0.4 110 20]);
+        'Position',[settingsTabWidth*0.50-(110/2) settingsTabHeight*0.5 110 20]);
     samplingField = uieditfield(settingsTab,...
         'numeric',...
         'Value',samplesPerMilliSecond,...
         'ValueChangedFcn',@fieldUpdate,...
-        'Position',[settingsTabWidth*0.545-(30/2) settingsTabHeight*0.325 30 20],...
+        'Position',[settingsTabWidth*0.475-(30/2) settingsTabHeight*0.425 30 20],...
         'HorizontalAlignment','Center');
     uilabel('Parent',settingsTab,...
         'Text','kHz',...
         'fontweight', 'bold',...
         'HorizontalAlignment','Center',...
-        'Position',[settingsTabWidth*0.595-(30/2) settingsTabHeight*0.325 30 20]);
+        'Position',[settingsTabWidth*0.525-(30/2) settingsTabHeight*0.425 30 20]);
     
     % labels and fields associated with average trace display parameters
     uilabel('Parent',settingsTab,...
         'Text','Samples in Average Trace',...
         'fontweight', 'bold',...
         'HorizontalAlignment','Center',...
-        'Position',[settingsTabWidth*0.81-(200/2) settingsTabHeight*0.4 200 20]);
+        'Position',[settingsTabWidth*0.81-(200/2) settingsTabHeight*0.5 200 20]);
     preEventField = uieditfield(settingsTab,...
         'numeric',...
         'Value',preEventSamples,...
         'ValueChangedFcn',@sampleNumberUpdate,...
-        'Position',[settingsTabWidth*0.80-(30/2) settingsTabHeight*0.325 30 20],...
+        'Position',[settingsTabWidth*0.80-(30/2) settingsTabHeight*0.425 30 20],...
         'HorizontalAlignment','Center');
     uilabel('Parent',settingsTab,...
         'Text','Pre Event',...
         'fontweight', 'bold',...
         'HorizontalAlignment','Center',...
-        'Position',[settingsTabWidth*0.72-(50/2) settingsTabHeight*0.325 60 20]);
+        'Position',[settingsTabWidth*0.72-(50/2) settingsTabHeight*0.425 60 20]);
     postEventField = uieditfield(settingsTab,...
         'numeric',...
         'Value',postEventSamples,...
         'ValueChangedFcn',@sampleNumberUpdate,...
-        'Position',[navigationTabWidth*0.92-(30/2) settingsTabHeight*0.325 30 20],...
+        'Position',[settingsTabWidth*0.92-(30/2) settingsTabHeight*0.425 30 20],...
         'HorizontalAlignment','Center');
     uilabel('Parent',settingsTab,...
         'Text','Decay',...
         'fontweight', 'bold',...
         'HorizontalAlignment','Center',...
-        'Position',[settingsTabWidth*0.865-(50/2) navigationTabHeight*0.325 50 20]);
+        'Position',[settingsTabWidth*0.865-(50/2) settingsTabHeight*0.425 50 20]);
        
 %% create analysis tab
     % create and populate the tab that contains buttons for analysis
@@ -533,12 +582,7 @@ function analyzeTraces
                 'Save before opening a new experiment?','',...
                 'Options',{'Yes','No'});
             if strcmp(decisionSave,'Yes')
-                newFolder = directoryControl.Value;
-                cd(rootDir);
-                cd(previousFolder);
                 saveAnalysis;
-                cd(rootDir);
-                cd(newFolder);
                 matlist = dir('*.mat');
                 matliststrings = string();
                 for matIndex = 1:size(matlist,1)
@@ -557,7 +601,7 @@ function analyzeTraces
         xSlider.Limits = [-windowScope windowScope];
         ySlider.Limits = [-50 10];
         currentWindow = 1:windowScope;
-        selectedEvents = NaN(500,20);
+        selectedEvents = NaN(500,15);
         eventCurrentlySelected = false;
         
         % turn on keyboard and click functions
@@ -579,6 +623,7 @@ function analyzeTraces
             uialert(mainPanel, 'Please choose a trace for analysis.','');
             return;
         end  
+        savePath = pwd;
     end
 
     function resumeAnalysis(~,~)
@@ -595,12 +640,7 @@ function analyzeTraces
                 'Save before opening a new experiment?','',...
                 'Options',{'Yes','No'});
             if strcmp(decisionSave,'Yes')
-                newFolder = directoryControl.Value;
-                cd(rootDir);
-                cd(previousFolder);
                 saveAnalysis;
-                cd(rootDir);
-                cd(newFolder);
                 matlist = dir('*.mat');
                 matliststrings = string();
                 for matIndex = 1:size(matlist,1)
@@ -633,22 +673,11 @@ function analyzeTraces
         fileName = analysisList.Value;
         cellName = convertCharsToStrings(split(fileName,"."));
         cellName = cellName(1);
+        warning('off','MATLAB:load:variableNotFound');
         load(analysisList.Value, 'dataTable', 'currentWindow', 'selectedEvents', 'traceSamples',...
-            'decayPercent','RMS','samplesPerMilliSecond','averageTrace','allTraces',...
-            'preEventSamples','postEventSamples','autoZoom','risePref');
-%         load(analysisList.Value);
-%         vars = load(analysisList.Value);
-%         fields = fieldnames(vars);
-% %         stacks = dbstack;
-% %         dbup size(stacks,1)
-%         for i = 1:length(fields)
-%             assignin('base',string(fields(i)),vars.(char(fields(i))));
-%         end
-%         
-%         if exist('trace','var')     %included for legacy analysis files
-%             load(analysisList.Value,'trace'); 
-%             traceSamples = trace;             
-%         end
+            'decayStartPercent','decayEndPercent','riseStartPercent','riseEndPercent',...
+            'RMS','samplesPerMilliSecond','preEventSamples','postEventSamples','autoZoom');
+        warning('on','MATLAB:load:variableNotFound');
         
         % set view parameters to those of saved experiment
         windowScope = length(currentWindow);
@@ -663,21 +692,25 @@ function analyzeTraces
         rmsField.Value = RMS;
         noiseThreshold = 3*RMS;
         cutoffText.Text = strcat("Noise Threshold: ",num2str(noiseThreshold)," pA");
-        decayField.Value = decayPercent;
+        riseStartField.Value = riseStartPercent;
+        riseEndField.Value = riseEndPercent;
+        decayStartField.Value = decayStartPercent;
+        decayEndField.Value = decayEndPercent;
         samplingField.Value = samplesPerMilliSecond;
         preEventField.Value = preEventSamples;
         postEventField.Value = postEventSamples;
-        riseCheck.Value = risePref;
         zoomCheck.Value = autoZoom;
         
         % misc. housekeeping before analysis begins
         trace_first_der = diff(traceSamples(:,traceValueCol));
         trace_first_der = cat(1,trace_first_der,0);
         selectedEvents = sortrows(selectedEvents,eventTimeCol,'MissingPlacement','last');
+        selectedEvents = selectedEvents(:,1:15);
         displayEventData;
         plotLocation;
         plotOverlaidEvents;
         updateSortCounts;
+        savePath = pwd;
     end    
 
     function importTrace
@@ -715,8 +748,8 @@ function analyzeTraces
         
         % check to see if click was within the trace plot
         % ignore the click if it was outside of the trace plot
-        if (sum(ismember(mainPoint(1),plotTabGroupDims(1):plotTabGroupHorz)) == 0)...
-                || (sum(ismember(mainPoint(2),plotTabGroupDims(2):plotTabGroupVert)) == 0)
+        if (sum(ismember(mainPoint(1),plotTabGroupDims(1)+20:plotTabGroupHorz-10)) == 0)...
+                || (sum(ismember(mainPoint(2),plotTabGroupDims(2)+20:plotTabGroupVert-30)) == 0)
             return;
         end
         
@@ -850,7 +883,7 @@ function analyzeTraces
         tempPeakTime = traceSamples(eventTime,eventPlotEndCol);
         tempPeakValue = traceSamples(tempPeakTime,traceValueCol);
         valueAtDesiredDecay = tempPeakValue...
-            +abs((1-(decayPercent/100))*(tempPeakValue-tempThresholdValue));
+            +abs((1-(decayEndPercent/100))*(tempPeakValue-tempThresholdValue));
         decayTime = tempPeakTime+1;
         valueAtDecayTime = traceSamples(decayTime,traceValueCol);
         while valueAtDecayTime < valueAtDesiredDecay
@@ -873,13 +906,19 @@ function analyzeTraces
         
         % auto zoom to event if desired by user
         if (autoZoom == 1) && (eventCurrentlySelected == true)
-            xlim(tracePlot,[eventTime-50 eventTime+50]);
-            ylim(tracePlot,'auto');
+            try
+                yRangeLims = traceSamples(eventTime-50:eventTime+50,traceValueCol) - meanWindowY;
+                yRange = range(traceSamples(eventTime-50:eventTime+50,traceValueCol));
+            catch
+                yRangeLims = traceSamples(eventTime-10:eventTime+10,traceValueCol) - meanWindowY;
+                yRange = range(traceSamples(eventTime-10:eventTime+10,traceValueCol));
+            end
+            ylim(tracePlot,[min(yRangeLims)-0.25*yRange max(yRangeLims)+0.25*yRange]);
             yTemp = ylim(tracePlot);
             if yTemp(2)-yTemp(1) < 25
                 ylim(tracePlot, ylim(tracePlot)*2);
             end
-            xlim(tracePlot,[eventTime-300 eventTime+300]);
+            xlim(tracePlot,[eventTime-200 eventTime+200]);
         end
     end
 
@@ -897,7 +936,7 @@ function analyzeTraces
         eventPeakTime = traceSamples(eventTime,eventPlotEndCol);
         eventPeakValue = traceSamples(eventPeakTime,traceValueCol);
         valueAtDesiredDecay = eventPeakValue...
-            +abs((1-(decayPercent/100))*(eventPeakValue-eventThresholdValue));
+            +abs((1-(decayStartPercent/100))*(eventPeakValue-eventThresholdValue));
         decayTime = eventPeakTime+1;
         valueAtDecayTime = traceSamples(decayTime,traceValueCol);
         while valueAtDecayTime < valueAtDesiredDecay
@@ -920,13 +959,19 @@ function analyzeTraces
         
         % auto zoom to event if desired by user
         if (autoZoom == 1) && (eventCurrentlySelected == true)
-            xlim(tracePlot,[eventTime-50 eventTime+50]);
-            ylim(tracePlot,'auto');
+            try
+                yRangeLims = traceSamples(eventTime-50:eventTime+50,traceValueCol) - meanWindowY;
+                yRange = range(traceSamples(eventTime-50:eventTime+50,traceValueCol));
+            catch
+                yRangeLims = traceSamples(eventTime-10:eventTime+10,traceValueCol) - meanWindowY;
+                yRange = range(traceSamples(eventTime-10:eventTime+10,traceValueCol));
+            end
+            ylim(tracePlot,[min(yRangeLims)-0.25*yRange max(yRangeLims)+0.25*yRange]);
             yTemp = ylim(tracePlot);
-            if yTemp(2)-yTemp(1) < 20
+            if yTemp(2)-yTemp(1) < 25
                 ylim(tracePlot, ylim(tracePlot)*2);
             end
-            xlim(tracePlot,[eventTime-300 eventTime+300]);
+            xlim(tracePlot,[eventTime-200 eventTime+200]);
         end
     end
         
@@ -972,7 +1017,11 @@ function analyzeTraces
                 end
             end
         end
-%         plotScale;
+        locationNum = num2str(round(currentWindow(end)*100/length(traceSamples),2));
+        locationText = sprintf('%s%s',locationNum,'% through trace');
+        locationX = currentWindow(end) - ceil(0.075*windowScope);
+        locationY = yMin+ceil(0.025*yRange);
+        text(tracePlot,locationX,locationY,locationText);
     end
      
     function displayEventData
@@ -983,21 +1032,49 @@ function analyzeTraces
         
         % pull relevant info from selectedEvents and generate table
         selectedEvents = sortrows(selectedEvents,eventTimeCol,'MissingPlacement','last');
+        if ~isnan(selectedEvents(end-10,eventTimeCol))
+            selectedEvents = [selectedEvents; nan(100,15)];
+        end
         eventsForTableLogical = ~isnan(selectedEvents(:,eventTimeCol));
         selectedEventsSorted = selectedEvents(eventsForTableLogical,:);
         avgTraceCol = cell(size(selectedEventsSorted,1),1);
-        avgTraceCol(:) = {char('No')};
+        avgTraceCol(:) = {char('')};
         avgTraceLogical = selectedEventsSorted(:,averageTraceLogicalCol) == 1;
-        avgTraceCol(avgTraceLogical) = {char('Yes')};
+        avgTraceCol(avgTraceLogical) = {char(sprintf('\x2022'))};
         avgTraceCol = string(avgTraceCol);
+        fullCol = cell(size(selectedEventsSorted,1),1);
+        fullCol(:) = {char('')};
+        fullLogical = selectedEventsSorted(:,fullEventLogicalCol) == 1;
+        fullCol(fullLogical) = {char(sprintf('\x2022'))};
+        fullCol = string(fullCol);
+        ampCol = cell(size(selectedEventsSorted,1),1);
+        ampCol(:) = {char('')};
+        ampLogical = selectedEventsSorted(:,amplitudeLogicalCol) == 1;
+        ampCol(ampLogical) = {char(sprintf('\x2022'))};
+        ampCol = string(ampCol);
+        freqCol = cell(size(selectedEventsSorted,1),1);
+        freqCol(:) = {char('')};
+        freqLogical = selectedEventsSorted(:,frequencyLogicalCol) == 1;
+        freqCol(freqLogical) = {char(sprintf('\x2022'))};
+        freqCol = string(freqCol);
         dataTable = table((1:sum(eventsForTableLogical))',...
-            avgTraceCol,...
+            avgTraceCol,fullCol,ampCol,freqCol,...            
             abs(selectedEventsSorted(:,amplitudeValueCol)),...
-            selectedEventsSorted(:,risetime1090ValueCol),...
-            abs(selectedEventsSorted(:,riseslope1090ValueCol)),...
+            selectedEventsSorted(:,riseTimeValueCol),...
+            abs(selectedEventsSorted(:,riseSlopeValueCol)),...
             selectedEventsSorted(:,aucValueCol),...
-            selectedEventsSorted(:,halfWidthValueCol),...
-            'VariableNames',{'Event','AverageTrace','Amplitude','RiseTime','Slope','Area','HalfWidth'});
+            selectedEventsSorted(:,decayValueCol),...
+            'VariableNames',...
+                {'Event',...
+                sprintf('Average\nTrace'),...
+                sprintf('%s%s%s\nGroup','Full',' ','Event'),...
+                sprintf('Amplitude\nGroup'),...
+                sprintf('Frequency\nGroup'),...
+                sprintf('Amplitude\n(pA)'),...
+                sprintf('%s%s%s\n(ms)','Rise',' ','Time'),...
+                sprintf('%s%s%s\n(pA/ms)','Rise',' ','Slope'),...
+                sprintf('Area\n(fC)'),...
+                sprintf('%s%s%s\n(ms)','Decay',' ','Time')});
        
         % sort and display table based on previous sorting parameters
         if ascendLogical == 0
@@ -1006,6 +1083,9 @@ function analyzeTraces
             dataTable = sortrows(dataTable,sortedColumn);
         end
         set(uit, 'Data', dataTable);
+        set(uit, 'ColumnWidth','fit');
+        style = uistyle('HorizontalAlignment','center');
+        addStyle(uit,style);
     end
 
 %% UI buttons
@@ -1093,26 +1173,28 @@ function analyzeTraces
         % determine amplitude of selected event to check against noise threshold
         eventPeakValue = traceSamples(eventPeakTime,traceValueCol);
         eventThresholdValue = traceSamples(eventThresholdTime,traceValueCol);
-        if abs(eventPeakValue - eventThresholdValue)  < noiseThreshold
-            uialert(mainPanel, 'Event is below noise threshold.','');
-            return;
+        % don't check against threshold if updating event measurements
+        if updatingLogical == false
+            if abs(eventPeakValue - eventThresholdValue)  < noiseThreshold
+                uialert(mainPanel, 'Event is below noise threshold.','');
+                return;
+            end
         end
         
         % update selectedEvents matrix and progress through event measurement
         selectedEvents(eventIndex,fullEventLogicalCol) = 1;    
-        if eventThresholdTime - preEventSamples < 1
-            uialert(mainPanel, 'Event is too close to beginning of trace','');
-            return;
-        elseif eventPeakTime + postEventSamples > length(traceSamples)
-            uialert(mainPanel, 'Event is too close to end of trace.','');
-            return;
-        end        
+%         if eventThresholdTime - preEventSamples < 1
+%             uialert(mainPanel, 'Event is too close to beginning of trace','');
+%             return;
+%         elseif eventPeakTime + postEventSamples > length(traceSamples)
+%             uialert(mainPanel, 'Event is too close to end of trace.','');
+%             return;
+%         end        
         
         selectedEvents(eventIndex,averageTraceLogicalCol) = 1;
         if updatingLogical == true
             selectedEvents(eventIndex,averageTraceLogicalCol) = averageTraceUpdate;          
         end
-        calculateDecayValues;
         addToAmplitudeGroup;
     end
 
@@ -1128,16 +1210,17 @@ function analyzeTraces
         % determine amplitude of selected event to check against noise threshold
         eventPeakValue = traceSamples(eventPeakTime,traceValueCol);
         eventThresholdValue = traceSamples(eventThresholdTime,traceValueCol);
-        if abs(eventPeakValue - eventThresholdValue) < noiseThreshold
-            uialert(mainPanel, 'Event is below noise threshold.','');
-            return;
+        % don't check against threshold if updating event measurements
+        if updatingLogical == false
+            if abs(eventPeakValue - eventThresholdValue)  < noiseThreshold
+                uialert(mainPanel, 'Event is below noise threshold.','');
+                return;
+            end
         end
 
         % update selectedEvents matrix and progress through event measurement
         selectedEvents(eventIndex,amplitudeLogicalCol) = 1;
-        selectedEvents(eventIndex,amplitudeValueCol) = eventPeakValue - eventThresholdValue;
-        calculateRiseValues
-        addToFrequencyGroup
+        addToFrequencyGroup;
     end
 
     function addToFrequencyGroup(~,~)
@@ -1152,15 +1235,25 @@ function analyzeTraces
         % determine amplitude of selected event to check against noise threshold
         eventPeakValue = traceSamples(eventPeakTime,traceValueCol);
         eventThresholdValue = traceSamples(eventThresholdTime,traceValueCol);
-        if abs(eventPeakValue - eventThresholdValue) < noiseThreshold
-            uialert(mainPanel, 'Event is below noise threshold.','');
-            return;
+        % don't check against threshold if updating event measurements
+        if updatingLogical == false
+            if abs(eventPeakValue - eventThresholdValue)  < noiseThreshold
+                uialert(mainPanel, 'Event is below noise threshold.','');
+                return;
+            end
+        end    
+        
+        if selectedEvents(eventIndex,amplitudeLogicalCol) == 1
+            selectedEvents(eventIndex,amplitudeValueCol) = eventPeakValue - eventThresholdValue;
         end
+        calculateDecayValues;
+        calculateRiseValues;
         
         % update selectedEvents matrix
         if selectedEvents(eventIndex,fullEventLogicalCol) == 1
             selectedEvents(eventIndex,aucValueCol) = abs(eventRiseAUC + eventDecayAUC);
         end
+        
         selectedEvents(eventIndex,frequencyLogicalCol) = 1;
         selectedEvents(eventIndex,eventTimeCol) = eventThresholdTime;
         
@@ -1335,10 +1428,12 @@ function analyzeTraces
         d = uiprogressdlg(mainPanel,'Message','Saving...');
         
         % save relevant variables
+        cd(rootDir);
+        cd(savePath);
         saveName = strcat(cellName,'.mat');
         save(saveName, 'dataTable', 'currentWindow', 'selectedEvents', 'traceSamples',...
-            'decayPercent','RMS','samplesPerMilliSecond','averageTrace','allTraces',...
-            'preEventSamples','postEventSamples','autoZoom','risePref');
+            'decayStartPercent','decayEndPercent','riseStartPercent','riseEndPercent',...
+            'RMS','samplesPerMilliSecond','preEventSamples','postEventSamples','autoZoom');
         d.Value = 0.9;
         
         % update analysis file list on control tab of GUI
@@ -1360,43 +1455,6 @@ function analyzeTraces
             saveAnalysis;
         end
         delete(mainPanel);
-    end
-
-    function updateMeasurements
-    % cycle through selectedEvents to re-analyze events with different settings
-        
-        updatingLogical = true;
-    
-        % ignore button click if an event is currently selected
-        if (eventCurrentlySelected == true)
-            uialert(mainPanel, 'Please sort or delete the selected event.','');
-            return;
-        end
-    
-        d = uiprogressdlg(mainPanel,'Message','Updating...');
-        for updateIndex = 1:sum(~isnan(selectedEvents(:,12)),1) 
-            eventIndex = length(selectedEvents);
-            eventCurrentlySelected = true;
-            eventThresholdTime = selectedEvents(updateIndex,eventTimeCol);
-            eventPeakTime = traceSamples(eventThresholdTime,eventPlotEndCol);
-            averageTraceUpdate = selectedEvents(updateIndex,averageTraceLogicalCol);
-            if selectedEvents(updateIndex,fullEventLogicalCol) == 1
-                selectedEvents(updateIndex,:) = nan;
-                addToFullDecayGroup;
-            elseif selectedEvents(updateIndex,amplitudeLogicalCol) == 1
-                selectedEvents(updateIndex,:) = nan;
-                addToAmplitudeGroup;
-            elseif selectedEvents(updateIndex,frequencyLogicalCol) == 1
-                selectedEvents(updateIndex,:) = nan;
-                addToFrequencyGroup;
-            end
-            d.Value = updateIndex/sum(~isnan(selectedEvents(:,12)),1);
-        end
-        updatingLogical = false;
-        updateSortCounts;
-        displayEventData;
-        plotLocation;
-        plotOverlaidEvents;
     end
 
     function addFreqToAmp(~,~)
@@ -1633,8 +1691,16 @@ function analyzeTraces
         eventPeakValue = traceSamples(eventPeakTime,traceValueCol);
         eventThresholdValue = traceSamples(eventThresholdTime,traceValueCol);
         
+        valueAtDesiredDecay = eventPeakValue...
+            +abs((1-(decayEndPercent/100))*(eventPeakValue-eventThresholdValue));
+        maxDecayIdx = eventPeakTime;
+        while traceSamples(maxDecayIdx,traceValueCol) < valueAtDesiredDecay
+            maxDecayIdx = maxDecayIdx + 1;
+        end
+        maxDecayTime = maxDecayIdx - eventPeakTime;
+        
         % interpolate between sample points to generate fine-scale array of decay values
-        for decIndex = 1:(eventPeakTime-eventThresholdTime)*50
+        for decIndex = 1:maxDecayTime
             tempArray = linspace(...
                 traceSamples(eventPeakTime+(decIndex-1),traceValueCol)-eventThresholdValue,...
                 traceSamples(eventPeakTime+decIndex,traceValueCol)-eventThresholdValue,101);
@@ -1657,43 +1723,45 @@ function analyzeTraces
             end
         catch
             % in these rare cases, the event is measured for amplitude
-%             traceSamples(eventThresholdTime, eventPlotLogicalCol) = 0;
-%             traceSamples(eventThresholdTime, eventPlotEndCol) = nan;    
-%             selectedEvents(eventIndex,:) = nan;
-            selectedEvents(eventIndex,fullEventLogicalCol) = 0;    
-            selectedEvents(eventIndex,averageTraceLogicalCol) = 0;
+            selectedEvents(eventIndex,fullEventLogicalCol) = nan;    
+            selectedEvents(eventIndex,averageTraceLogicalCol) = nan;
             uialert(mainPanel,'A decay value could not be determined for an event','');
             return;
         end
         decay50Time = decayArrayIndex/100; 
         selectedEvents(eventIndex,decay50TimeCol) = eventPeakTime + decay50Time;
         
-        % calculate decay time to desired percentage
-        decayArrayIndex = 1;
-        decayVal = decayArray(decayArrayIndex,1);
+        % generate logical array for values that are in the selected range
+        % of the decay
+        decayLogical = zeros(size(decayArray,1),1);
+        beginDecay = 1;
+        while (decayArray(beginDecay,1)) < ((eventPeakValue-eventThresholdValue)*(decayStartPercent/100))
+            beginDecay = beginDecay + 1;
+        end
+        endDecay = beginDecay;
         try
             % in rare cases, due to membrane current fluctutions, it is not possible to iterate 
             % to the desired value
-            while decayVal < (eventPeakValue-eventThresholdValue)*(decayPercent/100)
-                decayArrayIndex = decayArrayIndex + 1;
-                decayVal = decayArray(decayArrayIndex,1);
+            while (decayArray(endDecay,1)) < ((eventPeakValue-eventThresholdValue)*(decayEndPercent/100))
+                endDecay = endDecay + 1;
             end
         catch
             % in these rare cases, the event is measured for amplitude
-%             traceSamples(eventThresholdTime, eventPlotLogicalCol) = 0;
-%             traceSamples(eventThresholdTime, eventPlotEndCol) = nan; 
-%             selectedEvents(eventIndex,:) = nan;
-            selectedEvents(eventIndex,fullEventLogicalCol) = 0;    
-            selectedEvents(eventIndex,averageTraceLogicalCol) = 0;
-            selectedEvents(eventIndex,decay50TimeCol) = 0;
+            selectedEvents(eventIndex,fullEventLogicalCol) = nan;    
+            selectedEvents(eventIndex,averageTraceLogicalCol) = nan;
             uialert(mainPanel,'A decay value could not be determined for an event','');
             return;
         end
-        decayToPercentTime = decayArrayIndex/100; 
-        
+        decayLogical(beginDecay:endDecay) = 1;
+        decayLogical = logical(decayLogical);
+        decayArraySelected = decayArray(decayLogical);
+        decayToPercentTime = length(decayArraySelected)/100;
+               
         % calculate area under the curve from the peak to the desired decay percentage
-        eventDecayAUC = (sum(decayArray(1:decayArrayIndex,1))/100)/samplesPerMilliSecond;
-        selectedEvents(eventIndex,decayValueCol) = decayToPercentTime/samplesPerMilliSecond;
+        eventDecayAUC = (sum(decayArray(1:endDecay,1))/100)/samplesPerMilliSecond;
+        if selectedEvents(eventIndex,fullEventLogicalCol) == 1
+            selectedEvents(eventIndex,decayValueCol) = decayToPercentTime/samplesPerMilliSecond;
+        end
         return;
     end    
     
@@ -1727,40 +1795,70 @@ function analyzeTraces
             selectedEvents(eventIndex,halfWidthValueCol) =...
                 (selectedEvents(eventIndex,decay50TimeCol)-selectedEvents(eventIndex,rise50TimeCol))...
                 /samplesPerMilliSecond;
-        end       
-        
-        if risePref ~= 1
-            selectedEvents(eventIndex,risetime1090ValueCol) = ...
-                (eventPeakTime-eventThresholdTime)/samplesPerMilliSecond;
-            selectedEvents(eventIndex,riseslope1090ValueCol) =...
-                selectedEvents(eventIndex,amplitudeValueCol)/...
-                selectedEvents(eventIndex,risetime1090ValueCol);
-            return;
         end
-        
-        % generate logical array for values that are in the 10-90 range of the rise
+                
+        % generate logical array for values that are in the selected range of the rise
         riseLogical = zeros(size(riseArray,1),1);
-        begin1090 = 1;
-        end1090 = size(riseArray,1);
-        while (riseArray(begin1090,1)) > (selectedEvents(eventIndex,amplitudeValueCol)*0.1)
-            begin1090 = begin1090 + 1;
+        beginRise = 1;
+        endRise = size(riseArray,1);
+        while (riseArray(beginRise,1)) > (selectedEvents(eventIndex,amplitudeValueCol)*(riseStartPercent/100))
+            beginRise = beginRise + 1;
         end
-        while (riseArray(end1090,1)) < (selectedEvents(eventIndex,amplitudeValueCol)*0.9)
-            end1090 = end1090 - 1;
+        while (riseArray(endRise,1)) < (selectedEvents(eventIndex,amplitudeValueCol)*(riseEndPercent/100))
+            endRise = endRise - 1;
         end
-        riseLogical(begin1090:end1090) = 1;
+        riseLogical(beginRise:endRise) = 1;
         riseLogical = logical(riseLogical);
         
-        % create 10-90 rise array
-        riseArray1090 = riseArray(riseLogical,:);
+        % create selected rise array
+        riseArraySelected = riseArray(riseLogical,:);
         
         % update measurements in selectedEvents
-        selectedEvents(eventIndex,riseslope1090ValueCol) =...
-            (riseArray1090(end,1)-riseArray1090(1,1))...
-            /((size(riseArray1090,1)/100)/samplesPerMilliSecond);
-        selectedEvents(eventIndex,risetime1090ValueCol) =...
-            (riseArray1090(end,2)-riseArray1090(1,2))/samplesPerMilliSecond;  
+        if selectedEvents(eventIndex,amplitudeLogicalCol) == 1
+            selectedEvents(eventIndex,riseSlopeValueCol) =...
+                (riseArraySelected(end,1)-riseArraySelected(1,1))...
+                /((size(riseArraySelected,1)/100)/samplesPerMilliSecond);
+            selectedEvents(eventIndex,riseTimeValueCol) =...
+                (riseArraySelected(end,2)-riseArraySelected(1,2))/samplesPerMilliSecond; 
+        end
         return;
+    end
+
+    function updateMeasurements
+    % cycle through selectedEvents to re-analyze events with different settings
+        
+        updatingLogical = true;
+    
+        % ignore button click if an event is currently selected
+        if (eventCurrentlySelected == true)
+            uialert(mainPanel, 'Please sort or delete the selected event.','');
+            return;
+        end
+    
+        d = uiprogressdlg(mainPanel,'Message','Updating...');
+        for updateIndex = 1:sum(~isnan(selectedEvents(:,12)),1) 
+            eventIndex = length(selectedEvents);
+            eventCurrentlySelected = true;
+            eventThresholdTime = selectedEvents(updateIndex,eventTimeCol);
+            eventPeakTime = traceSamples(eventThresholdTime,eventPlotEndCol);
+            averageTraceUpdate = selectedEvents(updateIndex,averageTraceLogicalCol);
+            if selectedEvents(updateIndex,fullEventLogicalCol) == 1
+                selectedEvents(updateIndex,:) = nan;
+                addToFullDecayGroup;
+            elseif selectedEvents(updateIndex,amplitudeLogicalCol) == 1
+                selectedEvents(updateIndex,:) = nan;
+                addToAmplitudeGroup;
+            elseif selectedEvents(updateIndex,frequencyLogicalCol) == 1
+                selectedEvents(updateIndex,:) = nan;
+                addToFrequencyGroup;
+            end
+            d.Value = updateIndex/sum(~isnan(selectedEvents(:,12)),1);
+        end
+        updatingLogical = false;
+        updateSortCounts;
+        displayEventData;
+        plotLocation;
+        plotOverlaidEvents;
     end
 
     function fieldUpdate(~,~)
@@ -1770,13 +1868,14 @@ function analyzeTraces
         if (eventCurrentlySelected == true)
             uialert(mainPanel, 'Please sort or delete the selected event before changing settings.','');
             samplingField.Value = samplesPerMilliSecond;
-            decayField.Value = decayPercent;
-            riseCheck.Value = risePref;
+            decayStartField.Value = decayStartPercent;
             return;
         end
         samplesPerMilliSecond = samplingField.Value;
-        decayPercent = decayField.Value;
-        risePref = riseCheck.Value;
+        decayStartPercent = decayStartField.Value;
+        decayEndPercent = decayEndField.Value;
+        riseStartPercent = riseStartField.Value;
+        riseEndPercent = riseEndField.Value;
         updateMeasurements;
         plotLocation;
     end
@@ -1814,6 +1913,11 @@ function analyzeTraces
         if replotLogical == true
             plotOverlaidEvents;
         end
+    end
+
+    function alignmentChange(~,event)
+        traceAlignment = event.NewValue.Text;
+        plotOverlaidEvents;
     end
      
     function evaluateCurrentPlotTab(~,~)
@@ -1875,19 +1979,51 @@ function analyzeTraces
         cla(averageTracePlot);
         allTraces = [];
         totalSamples = preEventSamples + postEventSamples;
-        
+                
         % generate a matrix containing all event traces that will be included in the average
-        for j = 1:size(selectedEvents,1)
-            if isnan(selectedEvents(j,eventTimeCol)) 
-                continue;
+        if strcmp(traceAlignment,'Align By Threshold')
+            for j = 1:size(selectedEvents,1)
+                if isnan(selectedEvents(j,eventTimeCol)) 
+                    continue;
+                end
+                thresholdIndex = selectedEvents(j,eventTimeCol);
+                thresholdValue = traceSamples(thresholdIndex,traceValueCol);
+                tempTraceBeginIndex = thresholdIndex-preEventSamples;
+                tempTraceEndIndex = thresholdIndex+postEventSamples;
+                if tempTraceBeginIndex < 1
+                    tempTrace = traceSamples(1:tempTraceEndIndex,1);
+                    tempTrace = [nan((1-tempTraceBeginIndex),1); tempTrace];
+                elseif tempTraceEndIndex > length(traceSamples)
+                    tempTrace = traceSamples(tempTraceBeginIndex:length(traceSamples),1);
+                    tempTrace = [tempTrace; nan((tempTraceEndIndex-length(traceSamples)),1)];
+                else
+                    tempTrace = traceSamples(tempTraceBeginIndex:tempTraceEndIndex,1);
+                end
+                tempTraceOffset = tempTrace - thresholdValue;
+                allTraces = [allTraces tempTraceOffset];
             end
-            thresholdIndex = selectedEvents(j,eventTimeCol);
-            thresholdValue = traceSamples(thresholdIndex,traceValueCol);
-            tempTraceBeginIndex = thresholdIndex-preEventSamples;
-            tempTraceEndIndex = thresholdIndex+postEventSamples;
-            tempTrace = traceSamples(tempTraceBeginIndex:tempTraceEndIndex,1);
-            tempTraceOffset = tempTrace - thresholdValue;
-            allTraces = [allTraces tempTraceOffset];
+        elseif strcmp(traceAlignment,'Align By Peak')
+            for j = 1:size(selectedEvents,1)
+                if isnan(selectedEvents(j,eventTimeCol)) 
+                    continue;
+                end
+                thresholdIndex = selectedEvents(j,eventTimeCol);
+                thresholdValue = traceSamples(thresholdIndex,traceValueCol);
+                peakIndex = traceSamples(thresholdIndex,eventPlotEndCol);
+                tempTraceBeginIndex = peakIndex-preEventSamples;
+                tempTraceEndIndex = peakIndex+postEventSamples;
+                if tempTraceBeginIndex < 1
+                    tempTrace = traceSamples(1:tempTraceEndIndex,1);
+                    tempTrace = [nan((1-tempTraceBeginIndex),1); tempTrace];
+                elseif tempTraceEndIndex > length(traceSamples)
+                    tempTrace = traceSamples(tempTraceBeginIndex:length(traceSamples),1);
+                    tempTrace = [tempTrace; nan((tempTraceEndIndex-length(traceSamples)),1)];
+                else
+                    tempTrace = traceSamples(tempTraceBeginIndex:tempTraceEndIndex,1);
+                end
+                tempTraceOffset = tempTrace - thresholdValue;
+                allTraces = [allTraces tempTraceOffset];
+            end
         end
         
         % calculate and plot the X and Y values for the average event trace
